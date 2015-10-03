@@ -10,7 +10,12 @@ var k_r_success_contrls = /^(?:input|select|textarea|keygen)/i;
 
 // keys with brackets for hash keys
 var object_brackets_regex = /\[(.+?)\]/g;
-var array_brackets_regex = /\[\]$/;
+var brackets_regex = /^\[(.+?)\]$/;
+// > 'people[foo][name]'.match(/\[(\d+?)?\]/)
+// null
+// > 'people[600][name]'.match(/\[(\d+?)?\]/)
+// [ '[600]', '600', index: 6, input: 'people[600][name]' ]
+var array_brackets_regex = /\[(\d+?)?\]/;
 var brackeks_prefix_regex = /^(.+?)\[/;
 
 // serializes form fields
@@ -61,7 +66,7 @@ function serialize(form, options) {
         if ((element.type === 'checkbox' || element.type === 'radio') && !element.checked) {
             val = undefined;
         }
-        
+
         // If we want empty elements
         if (options.empty) {
             // for checkbox
@@ -109,7 +114,7 @@ function serialize(form, options) {
             if (!isSelectedOptions && options.empty) {
                 result = serializer(result, key, '');
             }
-            
+
             continue;
         }
         result = serializer(result, key, val);
@@ -127,29 +132,161 @@ function serialize(form, options) {
     return result;
 }
 
+function parse_keys(string) {
+  console.log('== parse_keys', string)
+  var keys = []
+
+  var parent = /^([^\[\]]*)/;
+  var child = /(\[[^\[\]]*\])/g;
+  var match = parent.exec(string);
+
+  if (match[1]) {
+    keys.push(match[1])
+  }
+
+  while ((match = child.exec(string)) !== null) {
+    keys.push(match[1]);
+  }
+
+  return keys;
+}
+
+function assign(keys, value) {
+  console.log('\n\n=== assign:', keys, value)
+
+  if (keys.length === 0) {
+    return value;
+  }
+
+  var key = keys.shift();
+  var between = key.match(brackets_regex);
+  var result;
+
+  if (!between) {
+    result = {};
+    result[key] = assign(keys, value);
+  } else {
+    var index = parseInt(between[1], 10);
+
+    if (isNaN(index)) {
+      result = {};
+      result[between[1]] = assign(keys, value);
+    } else {
+      result = []
+      result[index] = assign(keys, value);
+    }
+  }
+
+  return result;
+  //   // var index = parseInt(cleanRoot, 10);
+  //   // var indexString = '' + index;
+  //   // if (!isNaN(index) &&
+  //   //     root !== cleanRoot &&
+  //   //     indexString === cleanRoot &&
+  //   //     index >= 0 &&
+  //   //     (options.parseArrays &&
+  //   //      index <= options.arrayLimit)) {
+  //   //
+  //   //     obj = [];
+  //   //     obj[index] = internals.parseObject(chain, val, options);
+  //   // }
+  //   // else {
+  //   //     obj[cleanRoot] = internals.parseObject(chain, val, options);
+  //   // }
+  //
+  //
+  //   // first match in brackes
+  //   // * if string it's an object
+  //   // * if number or undefined it's an array
+  //
+  //   // starts with an array bracket match
+  //   // if () {
+  //   //
+  //   // } else {
+  //   //   result[prefix] = {};
+  //   // }
+  // }
+  // // if (! result[prefix]) result[prefix] = {};
+
+
+}
+
 // obj/hash encoding serializer
 function hash_serializer(result, key, value) {
-    var is_array_key = has_array_brackets(key);
-    if (is_array_key) {
-        key = key.replace(array_brackets_regex, '');
-    }
+    console.log('\n\n=== serializing:', result, key, value)
 
+    var keys = parse_keys(key);
+    console.log('= keys', keys)
+    var object = assign(keys, value);
+    // var length = keys.length;
+    // var last = length - 1;
+    // var current = result;
+    //
+    // // walk the chain and assign
+    // for (var i = 0; i < length; i++) {
+    //   curent = parse_value(keys, value);
+    // }
+
+    console.log('= object', object)
+    console.log('= results', result)
+
+    // merge results with chain assignment
+
+    // var previous = keys.shift()
+    // // check that this isn't a bracket before assigning
+    // var length = keys.length
+    // for (var i = 0; i < length; i++) {
+    //   var current = keys[i]
+    //   console.log('current', current)
+    //
+    //   if (current === '[]') {
+    //     previous = []
+    //     continue
+    //   }
+    //
+    //
+    // }
+
+    console.log('= keys:', keys);
+
+    // parse keys
+    // assign value to key @ appropriate selector/depth
+
+    return result;
+
+    // This is duplicated in extract_from_brackets
+    // var is_array_key = has_array_brackets(key);
+    // console.log('is_array_key:', is_array_key)
+    // if (is_array_key) {
+    //     key = key.replace(array_brackets_regex, '');
+    //     console.log('reassigned key:', key)
+    // }
+
+    console.log('key', key)
     if (key in result) {
         var existing = result[key];
         if (!Array.isArray(existing)) {
             result[key] = [existing];
+            console.log('not an array:', existing)
+            console.log('result['+key+'] = '+result[key])
         }
+        console.log('pushing into: ', result[key])
         result[key].push(value);
     }
     else {
+        console.log('no key in:', result)
         if (has_object_brackets(key)) {
+          console.log('has_object_brackets', true)
           extract_from_brackets(result, key, value);
         }
         else {
+          console.log('has_object_brackets:', false)
+          console.log('is_array_key', is_array_key)
           result[key] = is_array_key ? [value] : value;
         }
     }
 
+    console.log('end result', result)
     return result;
 };
 
@@ -165,11 +302,11 @@ function str_serialize(result, key, value) {
 };
 
 function has_object_brackets(string) {
-  return string.match(object_brackets_regex);
+  return !!string.match(object_brackets_regex);
 };
 
 function has_array_brackets(string) {
-    return string.match(array_brackets_regex);
+    return !!string.match(array_brackets_regex);
 }
 
 function matches_between_brackets(string) {
@@ -186,14 +323,14 @@ function matches_between_brackets(string) {
 };
 
 function extract_from_brackets(result, key, value) {
-    var prefix = key.match(brackeks_prefix_regex)[1];
 
-    // Set the key if it doesn't exist
-    if (! result[prefix]) result[prefix] = {};
+
 
     var parent = result[prefix];
     var matches_between = matches_between_brackets(key);
     var length = matches_between.length;
+
+    console.log('matches', matches_between)
 
     for (var i = 0; i < length; i++) {
         var child = matches_between[i];
