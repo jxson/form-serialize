@@ -158,7 +158,7 @@ function parse_keys(string) {
     return keys;
 }
 
-function assign(result, keys, value) {
+function hash_assign(result, keys, value) {
     if (keys.length === 0) {
         result = value;
         return result;
@@ -171,14 +171,14 @@ function assign(result, keys, value) {
         result = result || [];
 
         if (Array.isArray(result)) {
-            result.push(assign(null, keys, value));
+            result.push(hash_assign(null, keys, value));
         } else {
             // This might be the result of bad name attributes like "[][foo]",
             // in this case the original `result` object will already be
             // assigned to an object literal. Rather than coerce the object to
             // an array the attribute "_values" is assigned as an array.
             result._values = result.values || [];
-            result._values.push(assign(null, keys, value));
+            result._values.push(hash_assign(null, keys, value));
         }
 
         return result;
@@ -186,7 +186,7 @@ function assign(result, keys, value) {
 
     // Key is an attribute name and can be assigend directly.
     if (!between) {
-        result[key] = assign(result[key], keys, value);
+        result[key] = hash_assign(result[key], keys, value);
     } else {
         var string = between[1];
         var index = parseInt(string, 10);
@@ -195,11 +195,11 @@ function assign(result, keys, value) {
         // attribute name and can be assigend directly like above.
         if (isNaN(index)) {
             result = result || {};
-            result[string] = assign(result[string], keys, value);
+            result[string] = hash_assign(result[string], keys, value);
         } else {
             // TODO: check if it's an array or not?
             result = result || [];
-            result[index] = assign(result[index], keys, value);
+            result[index] = hash_assign(result[index], keys, value);
         }
     }
 
@@ -216,7 +216,7 @@ function hash_serializer(result, key, value) {
     // at the end of the chain.
     if (matches) {
         var keys = parse_keys(key);
-        assign(result, keys, value);
+        hash_assign(result, keys, value);
     } else {
         // Non bracket notation can make assignments directly.
         var existing = result[key];
