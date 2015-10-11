@@ -402,12 +402,12 @@ test('bracket notation - nested, non-indexed arrays', function() {
 
 test('bracket notation - indexed arrays', function() {
     var form = domify('<form>' +
+        '<input name="people[2][name]" value="bubba" />' +
+        '<input name="people[2][age]" value="15" />' +
         '<input name="people[0][name]" value="fred" />' +
         '<input name="people[0][age]" value="12" />' +
         '<input name="people[1][name]" value="bob" />' +
         '<input name="people[1][age]" value="14" />' +
-        '<input name="people[2][name]" value="bubba" />' +
-        '<input name="people[2][age]" value="15" />' +
         '<input name="people[][name]" value="frank">' +
         '<input name="people[3][age]" value="2">' +
         '</form>');
