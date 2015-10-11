@@ -104,9 +104,22 @@ function serialize(form, options) {
             var isSelectedOptions = false;
             for (var j=0 ; j<selectOptions.length ; ++j) {
                 var option = selectOptions[j];
-                if (option.selected) {
+                if (option.selected && (option.value || (!option.value ===  options.empty))) {
+                    console.log('option', option)
                     isSelectedOptions = true
-                    result = serializer(result, key, option.value);
+
+                    if (options.hash) {
+                      // The hash serializer assumes types are encoded in the
+                      // structure of the key. For instance the key vaule pair
+                      // "foo[]", "bar" will be serialized to { foo: [ bar ] }.
+                      // Keys extracted from multi-select nodes are missing the
+                      // nessecary inforation to know the intent of adding
+                      // multiple selected option nodes expects to be serialized
+                      // into an array.
+                      result = serializer(result, key + '[]', option.value);
+                    } else {
+                      result = serializer(result, key, option.value);
+                    }
                 }
             }
 
@@ -117,6 +130,7 @@ function serialize(form, options) {
 
             continue;
         }
+
         result = serializer(result, key, val);
     }
 
@@ -133,160 +147,137 @@ function serialize(form, options) {
 }
 
 function parse_keys(string) {
-  console.log('== parse_keys', string)
-  var keys = []
+    var keys = []
+    var parent = /^([^\[\]]*)/;
+    var child = /(\[[^\[\]]*\])/g;
+    var match = parent.exec(string);
 
-  var parent = /^([^\[\]]*)/;
-  var child = /(\[[^\[\]]*\])/g;
-  var match = parent.exec(string);
+    if (match[1]) {
+        keys.push(match[1])
+    }
 
-  if (match[1]) {
-    keys.push(match[1])
-  }
+    while ((match = child.exec(string)) !== null) {
+        keys.push(match[1]);
+    }
 
-  while ((match = child.exec(string)) !== null) {
-    keys.push(match[1]);
-  }
-
-  return keys;
+    return keys;
 }
 
-function assign(keys, value) {
-  console.log('\n\n=== assign:', keys, value)
+function assign(result, keys, value) {
+      if (keys.length === 0) {
+          result = value;
+          return result;
+      }
 
-  if (keys.length === 0) {
-    return value;
-  }
+      var key = keys.shift();
+      var between = key.match(brackets_regex);
 
-  var key = keys.shift();
-  var between = key.match(brackets_regex);
-  var result;
+      if (key === '[]') {
+          // Push the next item in the chain into an existing array.
+          result = result || [];
 
-  if (!between) {
-    result = {};
-    result[key] = assign(keys, value);
-  } else {
-    var index = parseInt(between[1], 10);
+          if (Array.isArray(result)) {
+              var next = assign(null, keys, value);
+              result.push(next);
+              return result;
+          } else {
+              throw new Error('can not merge array into non-array');
+          }
+      }
 
-    if (isNaN(index)) {
-      result = {};
-      result[between[1]] = assign(keys, value);
+      if (!between) {
+        // Key is an attribute name and can be assigend directly.
+        result = result || {}
+        result[key] = assign(result[key], keys, value);
     } else {
-      result = []
-      result[index] = assign(keys, value);
+        var string = between[1];
+        var index = parseInt(string, 10);
+
+        // If the charactes between the brackets is not a number it is an
+        // attribute name and can be assigend directly like above.
+        if (isNaN(index)) {
+            result = result || {}
+            result[string] = assign(result[string], keys, value);
+        } else {
+            // TODO: check if it's an array or not?
+            result = result || []
+            result[index] = assign(result[index], keys, value)
+        }
     }
-  }
 
   return result;
-  //   // var index = parseInt(cleanRoot, 10);
-  //   // var indexString = '' + index;
-  //   // if (!isNaN(index) &&
-  //   //     root !== cleanRoot &&
-  //   //     indexString === cleanRoot &&
-  //   //     index >= 0 &&
-  //   //     (options.parseArrays &&
-  //   //      index <= options.arrayLimit)) {
-  //   //
-  //   //     obj = [];
-  //   //     obj[index] = internals.parseObject(chain, val, options);
-  //   // }
-  //   // else {
-  //   //     obj[cleanRoot] = internals.parseObject(chain, val, options);
-  //   // }
-  //
-  //
-  //   // first match in brackes
-  //   // * if string it's an object
-  //   // * if number or undefined it's an array
-  //
-  //   // starts with an array bracket match
-  //   // if () {
-  //   //
-  //   // } else {
-  //   //   result[prefix] = {};
-  //   // }
-  // }
-  // // if (! result[prefix]) result[prefix] = {};
-
-
 }
+
+// obj/hash encoding serializer
+function xhash_serializer(result, key, value) {
+    var is_array_key = has_array_brackets(key);
+    if (is_array_key) {
+        key = key.replace(array_brackets_regex, '');
+    }
+
+    if (key in result) {
+        var existing = result[key];
+        if (!Array.isArray(existing)) {
+            result[key] = [existing];
+        }
+        result[key].push(value);
+    }
+    else {
+        if (has_object_brackets(key)) {
+          extract_from_brackets(result, key, value);
+        }
+        else {
+          result[key] = is_array_key ? [value] : value;
+        }
+    }
+
+    return result;
+};
+
 
 // obj/hash encoding serializer
 function hash_serializer(result, key, value) {
     console.log('\n\n=== serializing:', result, key, value)
 
-    var keys = parse_keys(key);
-    console.log('= keys', keys)
-    var object = assign(keys, value);
-    // var length = keys.length;
-    // var last = length - 1;
-    // var current = result;
-    //
-    // // walk the chain and assign
-    // for (var i = 0; i < length; i++) {
-    //   curent = parse_value(keys, value);
+    var regex = /(\[[^\[\]]*\])/g;
+    if (key.match(regex)) {
+      console.log('has brackets')
+      var keys = parse_keys(key);
+      assign(result, keys, value);
+    } else {
+      console.log('no brakcets')
+
+      // See if this check and set can be done at the same time.
+      if (key in result) {
+        console.log('exists')
+        var existing = result[key];
+        if (!Array.isArray(existing)) {
+          console.log('forcing into an array')
+          result[key] = [ existing ];
+        }
+
+        result[key].push(value)
+      } else {
+        console.log('does not exist')
+        result[key] = value
+      }
+    }
+    // else {
+    //     if (has_object_brackets(key)) {
+    //       extract_from_brackets(result, key, value);
+    //     }
+    //     else {
+    //       result[key] = is_array_key ? [value] : value;
+    //     }
     // }
 
-    console.log('= object', object)
-    console.log('= results', result)
-
-    // merge results with chain assignment
-
-    // var previous = keys.shift()
-    // // check that this isn't a bracket before assigning
-    // var length = keys.length
-    // for (var i = 0; i < length; i++) {
-    //   var current = keys[i]
-    //   console.log('current', current)
-    //
-    //   if (current === '[]') {
-    //     previous = []
-    //     continue
-    //   }
-    //
-    //
-    // }
-
-    console.log('= keys:', keys);
+    console.log('\n\n= key', key)
+    console.log('= value', value)
+    console.log('= results - ', result)
 
     // parse keys
     // assign value to key @ appropriate selector/depth
 
-    return result;
-
-    // This is duplicated in extract_from_brackets
-    // var is_array_key = has_array_brackets(key);
-    // console.log('is_array_key:', is_array_key)
-    // if (is_array_key) {
-    //     key = key.replace(array_brackets_regex, '');
-    //     console.log('reassigned key:', key)
-    // }
-
-    console.log('key', key)
-    if (key in result) {
-        var existing = result[key];
-        if (!Array.isArray(existing)) {
-            result[key] = [existing];
-            console.log('not an array:', existing)
-            console.log('result['+key+'] = '+result[key])
-        }
-        console.log('pushing into: ', result[key])
-        result[key].push(value);
-    }
-    else {
-        console.log('no key in:', result)
-        if (has_object_brackets(key)) {
-          console.log('has_object_brackets', true)
-          extract_from_brackets(result, key, value);
-        }
-        else {
-          console.log('has_object_brackets:', false)
-          console.log('is_array_key', is_array_key)
-          result[key] = is_array_key ? [value] : value;
-        }
-    }
-
-    console.log('end result', result)
     return result;
 };
 
